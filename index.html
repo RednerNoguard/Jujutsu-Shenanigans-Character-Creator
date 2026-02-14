@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor de Save - Roblox (Zstd/Base64)</title>
+    <script src="https://cdn.jsdelivr.net/npm/fzstd@0.1.1/umd/index.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        h1 { color: #4CAF50; margin-bottom: 10px; }
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            flex-grow: 1;
+        }
+        .box {
+            background-color: #252526;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+        }
+        .box-full { flex-grow: 1; }
+        label { font-weight: bold; margin-bottom: 5px; color: #9cdcfe; }
+        textarea {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            resize: none;
+            flex-grow: 1;
+        }
+        textarea:focus { outline: 1px solid #4CAF50; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-start;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .btn-load { background-color: #0e639c; color: white; }
+        .btn-load:hover { background-color: #1177bb; }
+        .btn-save { background-color: #4CAF50; color: white; }
+        .btn-save:hover { background-color: #45a049; }
+        .btn-copy { background-color: #3e3e42; color: white; }
+        .btn-copy:hover { background-color: #4e4e52; }
+        
+        /* Scrollbar customizada */
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #1e1e1e; }
+        ::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
+    </style>
+</head>
+<body>
+
+    <h1>🛠️ Editor de Save Game (Zstd)</h1>
+
+    <div class="container">
+        <div class="box">
+            <label for="inputData">Cole o Código Save (KLUv...) aqui:</label>
+            <textarea id="inputData" rows="3" placeholder="Cole a string Base64 aqui..."></textarea>
+            <div class="controls" style="margin-top: 10px;">
+                <button class="btn-load" onclick="carregarSave()">🔓 1. Carregar e Decodificar</button>
+            </div>
+        </div>
+
+        <div class="box box-full">
+            <label for="jsonEditor">Editor JSON (DATA expandido automaticamente):</label>
+            <textarea id="jsonEditor" placeholder="O JSON aparecerá aqui para edição..."></textarea>
+        </div>
+
+        <div class="box">
+            <div class="controls">
+                <button class="btn-save" onclick="salvarSave()">🔒 2. Processar e Gerar Código</button>
+                <button class="btn-copy" onclick="copiarOutput()">📋 Copiar Resultado</button>
+            </div>
+            <textarea id="outputData" rows="3" placeholder="O código gerado aparecerá aqui..." readonly style="margin-top: 10px; color: #a6e22e;"></textarea>
+        </div>
+    </div>
+
+    <script>
+        // Funções auxiliares para Base64 <-> Uint8Array
+        function base64ToUint8Array(base64) {
+            const binaryString = window.atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        function uint8ArrayToBase64(bytes) {
+            let binary = '';
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
+        // 1. CARREGAR (Decode -> Decompress -> Expand JSON)
+        function carregarSave() {
+            const input = document.getElementById('inputData').value.trim();
+            if (!input) { alert("Cole um código primeiro!"); return; }
+
+            try {
+                // Base64 -> Bytes
+                const compressedBytes = base64ToUint8Array(input);
+
+                // Zstd Decompress (Usando fzstd)
+                const decompressedBytes = fzstd.decompress(compressedBytes);
+                
+                // Bytes -> String JSON
+                const jsonString = new TextDecoder().decode(decompressedBytes);
+                let data = JSON.parse(jsonString);
+
+                // Expandir campo DATA (String -> Object)
+                if (Array.isArray(data)) {
+                    data.forEach(item => {
+                        if (item.DATA && typeof item.DATA === 'string') {
+                            try {
+                                item.DATA = JSON.parse(item.DATA);
+                            } catch (e) { console.warn("Falha ao parsear DATA interno", e); }
+                        }
+                    });
+                }
+
+                // Mostrar no editor
+                document.getElementById('jsonEditor').value = JSON.stringify(data, null, 4);
+
+            } catch (err) {
+                alert("Erro ao carregar: " + err.message);
+                console.error(err);
+            }
+        }
+
+        // 2. SALVAR (Compact JSON -> Stringify DATA -> Compress -> Encode)
+        function salvarSave() {
+            const text = document.getElementById('jsonEditor').value;
+            if (!text) return;
+
+            try {
+                let data = JSON.parse(text);
+
+                // Comprimir campo DATA de volta para String
+                if (Array.isArray(data)) {
+                    data.forEach(item => {
+                        if (item.DATA && typeof item.DATA !== 'string') {
+                            // Minificar o JSON interno (sem espaços)
+                            item.DATA = JSON.stringify(item.DATA);
+                        }
+                    });
+                }
+
+                // String JSON Final (Minificada)
+                const jsonStringFinal = JSON.stringify(data); // O padrão já remove espaços extras se não passar argumentos
+                const jsonBytes = new TextEncoder().encode(jsonStringFinal);
+
+                // Zstd Compress
+                const compressedBytes = fzstd.compress(jsonBytes);
+
+                // Bytes -> Base64
+                const outputBase64 = uint8ArrayToBase64(compressedBytes);
+
+                document.getElementById('outputData').value = outputBase64;
+
+            } catch (err) {
+                alert("Erro no JSON: " + err.message);
+            }
+        }
+
+        function copiarOutput() {
+            const output = document.getElementById('outputData');
+            output.select();
+            document.execCommand('copy');
+            alert("Copiado!");
+        }
+    </script>
+</body>
+</html>
