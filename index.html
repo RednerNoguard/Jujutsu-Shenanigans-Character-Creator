@@ -105,20 +105,23 @@
     </div>
 
     <script>
-        // Variável global para usar o compressor
+        // Variável global
         let zstdSimple = null;
 
-        // INICIALIZAÇÃO DA BIBLIOTECA (IMPORTANTE)
-        // A biblioteca Zstd precisa carregar um módulo WebAssembly antes de funcionar.
+        // --- A CORREÇÃO ESTÁ AQUI ---
+        // Adicionei o segundo parâmetro com 'wasmURI' apontando para o CDN.
         ZstdCodec.run(zstd => {
             zstdSimple = new zstd.Simple();
             
-            // Ativa os botões quando estiver pronto
+            // Ativa a interface
             document.getElementById('btnLoad').disabled = false;
             document.getElementById('btnLoad').innerText = "🔓 1. Carregar e Decodificar";
             document.getElementById('btnSave').disabled = false;
             document.getElementById('status').innerText = "✅ Pronto para uso!";
             document.getElementById('status').style.color = "#4CAF50";
+        }, {
+            // Esta linha diz ao navegador onde buscar o arquivo .wasm
+            wasmURI: 'https://cdn.jsdelivr.net/npm/zstd-codec@0.1.5/dist/zstd-codec.wasm'
         });
 
         // Funções auxiliares Base64
@@ -147,17 +150,11 @@
             if (!input) { alert("Cole um código primeiro!"); return; }
 
             try {
-                // Base64 -> Bytes
                 const compressedBytes = base64ToUint8Array(input);
-
-                // Zstd Decompress (Usando a nova lib)
                 const decompressedBytes = zstdSimple.decompress(compressedBytes);
-                
-                // Bytes -> String JSON
                 const jsonString = new TextDecoder().decode(decompressedBytes);
                 let data = JSON.parse(jsonString);
 
-                // Expandir campo DATA (String -> Object)
                 if (Array.isArray(data)) {
                     data.forEach(item => {
                         if (item.DATA && typeof item.DATA === 'string') {
@@ -167,12 +164,9 @@
                         }
                     });
                 }
-
-                // Mostrar no editor
                 document.getElementById('jsonEditor').value = JSON.stringify(data, null, 4);
-
             } catch (err) {
-                alert("Erro ao carregar: " + err.message);
+                alert("Erro ao carregar (verifique se o código é válido): " + err.message);
                 console.error(err);
             }
         }
@@ -185,28 +179,20 @@
             try {
                 let data = JSON.parse(text);
 
-                // Comprimir campo DATA de volta para String
                 if (Array.isArray(data)) {
                     data.forEach(item => {
                         if (item.DATA && typeof item.DATA !== 'string') {
-                            // Minificar o JSON interno (sem espaços)
                             item.DATA = JSON.stringify(item.DATA);
                         }
                     });
                 }
 
-                // String JSON Final (Minificada)
                 const jsonStringFinal = JSON.stringify(data); 
                 const jsonBytes = new TextEncoder().encode(jsonStringFinal);
-
-                // Zstd Compress (AGORA VAI FUNCIONAR)
                 const compressedBytes = zstdSimple.compress(jsonBytes);
-
-                // Bytes -> Base64
                 const outputBase64 = uint8ArrayToBase64(compressedBytes);
 
                 document.getElementById('outputData').value = outputBase64;
-
             } catch (err) {
                 alert("Erro no processamento: " + err.message);
                 console.error(err);
