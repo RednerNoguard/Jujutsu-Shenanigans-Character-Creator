@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Editor de Save - Roblox (Zstd/Base64)</title>
-    <script src="https://cdn.jsdelivr.net/npm/zstd-codec@0.1.5/dist/zstd-codec.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fzstd@0.1.1/umd/index.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -52,7 +52,6 @@
             display: flex;
             gap: 10px;
             justify-content: flex-start;
-            align-items: center;
         }
         button {
             padding: 10px 20px;
@@ -62,18 +61,18 @@
             font-weight: bold;
             transition: background 0.2s;
         }
-        button:disabled { background-color: #555; cursor: not-allowed; opacity: 0.7; }
         .btn-load { background-color: #0e639c; color: white; }
-        .btn-load:hover:not(:disabled) { background-color: #1177bb; }
+        .btn-load:hover { background-color: #1177bb; }
         .btn-save { background-color: #4CAF50; color: white; }
-        .btn-save:hover:not(:disabled) { background-color: #45a049; }
+        .btn-save:hover { background-color: #45a049; }
         .btn-copy { background-color: #3e3e42; color: white; }
-        .btn-copy:hover:not(:disabled) { background-color: #4e4e52; }
-        #status { font-size: 0.9em; color: #ffcc00; margin-left: 10px; }
+        .btn-copy:hover { background-color: #4e4e52; }
         
+        /* Scrollbar customizada */
         ::-webkit-scrollbar { width: 10px; }
         ::-webkit-scrollbar-track { background: #1e1e1e; }
         ::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
     </style>
 </head>
 <body>
@@ -85,8 +84,7 @@
             <label for="inputData">Cole o Código Save (KLUv...) aqui:</label>
             <textarea id="inputData" rows="3" placeholder="Cole a string Base64 aqui..."></textarea>
             <div class="controls" style="margin-top: 10px;">
-                <button id="btnLoad" class="btn-load" onclick="carregarSave()" disabled>⏳ Carregando biblioteca...</button>
-                <span id="status">Aguardando inicialização do Zstd...</span>
+                <button class="btn-load" onclick="carregarSave()">🔓 1. Carregar e Decodificar</button>
             </div>
         </div>
 
@@ -97,7 +95,7 @@
 
         <div class="box">
             <div class="controls">
-                <button id="btnSave" class="btn-save" onclick="salvarSave()" disabled>🔒 2. Processar e Gerar Código</button>
+                <button class="btn-save" onclick="salvarSave()">🔒 2. Processar e Gerar Código</button>
                 <button class="btn-copy" onclick="copiarOutput()">📋 Copiar Resultado</button>
             </div>
             <textarea id="outputData" rows="3" placeholder="O código gerado aparecerá aqui..." readonly style="margin-top: 10px; color: #a6e22e;"></textarea>
@@ -105,26 +103,7 @@
     </div>
 
     <script>
-        // Variável global
-        let zstdSimple = null;
-
-        // --- A CORREÇÃO ESTÁ AQUI ---
-        // Adicionei o segundo parâmetro com 'wasmURI' apontando para o CDN.
-        ZstdCodec.run(zstd => {
-            zstdSimple = new zstd.Simple();
-            
-            // Ativa a interface
-            document.getElementById('btnLoad').disabled = false;
-            document.getElementById('btnLoad').innerText = "🔓 1. Carregar e Decodificar";
-            document.getElementById('btnSave').disabled = false;
-            document.getElementById('status').innerText = "✅ Pronto para uso!";
-            document.getElementById('status').style.color = "#4CAF50";
-        }, {
-            // Esta linha diz ao navegador onde buscar o arquivo .wasm
-            wasmURI: 'https://cdn.jsdelivr.net/npm/zstd-codec@0.1.5/dist/zstd-codec.wasm'
-        });
-
-        // Funções auxiliares Base64
+        // Funções auxiliares para Base64 <-> Uint8Array
         function base64ToUint8Array(base64) {
             const binaryString = window.atob(base64);
             const len = binaryString.length;
@@ -144,17 +123,23 @@
             return window.btoa(binary);
         }
 
-        // 1. CARREGAR
+        // 1. CARREGAR (Decode -> Decompress -> Expand JSON)
         function carregarSave() {
             const input = document.getElementById('inputData').value.trim();
             if (!input) { alert("Cole um código primeiro!"); return; }
 
             try {
+                // Base64 -> Bytes
                 const compressedBytes = base64ToUint8Array(input);
-                const decompressedBytes = zstdSimple.decompress(compressedBytes);
+
+                // Zstd Decompress (Usando fzstd)
+                const decompressedBytes = fzstd.decompress(compressedBytes);
+                
+                // Bytes -> String JSON
                 const jsonString = new TextDecoder().decode(decompressedBytes);
                 let data = JSON.parse(jsonString);
 
+                // Expandir campo DATA (String -> Object)
                 if (Array.isArray(data)) {
                     data.forEach(item => {
                         if (item.DATA && typeof item.DATA === 'string') {
@@ -164,14 +149,17 @@
                         }
                     });
                 }
+
+                // Mostrar no editor
                 document.getElementById('jsonEditor').value = JSON.stringify(data, null, 4);
+
             } catch (err) {
-                alert("Erro ao carregar (verifique se o código é válido): " + err.message);
+                alert("Erro ao carregar: " + err.message);
                 console.error(err);
             }
         }
 
-        // 2. SALVAR
+        // 2. SALVAR (Compact JSON -> Stringify DATA -> Compress -> Encode)
         function salvarSave() {
             const text = document.getElementById('jsonEditor').value;
             if (!text) return;
@@ -179,23 +167,30 @@
             try {
                 let data = JSON.parse(text);
 
+                // Comprimir campo DATA de volta para String
                 if (Array.isArray(data)) {
                     data.forEach(item => {
                         if (item.DATA && typeof item.DATA !== 'string') {
+                            // Minificar o JSON interno (sem espaços)
                             item.DATA = JSON.stringify(item.DATA);
                         }
                     });
                 }
 
-                const jsonStringFinal = JSON.stringify(data); 
+                // String JSON Final (Minificada)
+                const jsonStringFinal = JSON.stringify(data); // O padrão já remove espaços extras se não passar argumentos
                 const jsonBytes = new TextEncoder().encode(jsonStringFinal);
-                const compressedBytes = zstdSimple.compress(jsonBytes);
+
+                // Zstd Compress
+                const compressedBytes = fzstd.compress(jsonBytes);
+
+                // Bytes -> Base64
                 const outputBase64 = uint8ArrayToBase64(compressedBytes);
 
                 document.getElementById('outputData').value = outputBase64;
+
             } catch (err) {
-                alert("Erro no processamento: " + err.message);
-                console.error(err);
+                alert("Erro no JSON: " + err.message);
             }
         }
 
